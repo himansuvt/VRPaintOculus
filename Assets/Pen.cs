@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 public class Pen : MonoBehaviour
 {
@@ -24,6 +25,7 @@ public class Pen : MonoBehaviour
     private Color lastColor;
     private Texture lastTexture;
     private bool wasTextureApplied = false;
+    bool canDraw = true;
     private void Start()
     {
         currentLineWidth = penWidthMin;
@@ -40,7 +42,7 @@ public class Pen : MonoBehaviour
             isEraserActive = !isEraserActive;
             UpdateTipMaterial();
         }
-
+       
         if (OVRInput.GetDown(OVRInput.Button.Two))
         {
             UndoLastLine(); 
@@ -62,6 +64,8 @@ public class Pen : MonoBehaviour
 
     private void Draw()
     {
+ 
+        
         bool drawInput = Input.GetMouseButton(0);
         float triggerValue = 0;
 
