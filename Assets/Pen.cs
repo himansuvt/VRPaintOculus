@@ -25,7 +25,7 @@ public class Pen : MonoBehaviour
     private Color lastColor;
     private Texture lastTexture;
     private bool wasTextureApplied = false;
-    bool canDraw = true;
+
     private void Start()
     {
         currentLineWidth = penWidthMin;
