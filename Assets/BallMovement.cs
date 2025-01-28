@@ -1,4 +1,5 @@
 using Oculus.Interaction;
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -11,12 +12,15 @@ public class BallMovement : MonoBehaviour
     public Transform basketPosition;
     public Toggle biasToggle;
     public RayInteractor interactor;
+    public ScoreManager scoreManager;
 
     [Header("Settings")]
     public float throwForceMultiplier = 2.5f;
     public float twoHandAttachDistance = 1f;
     public float twoHandGrabWindow = 0.3f;
     public float releaseGracePeriod = 0.5f;
+    public bool successTriggered = false;
+    public float waitTime = 2.5f;
 
 
     [Header("Bias Settings")]
@@ -164,8 +168,13 @@ public class BallMovement : MonoBehaviour
 
     }
 
+    private void OnTriggerEnter(Collider other)
+    {
+        scoreManager.CheckGoal( other );
+    }
     void AttachToHand(Transform hand)
     {
+        StopAllCoroutines();
         isHeld = true;
         isTwoHanded = false;
         activeHand = hand;
@@ -183,6 +192,7 @@ public class BallMovement : MonoBehaviour
 
     void AttachToTwoHands()
     {
+        StopAllCoroutines();
         isHeld = true;
         isTwoHanded = true;
 
@@ -224,6 +234,8 @@ public class BallMovement : MonoBehaviour
 
         ballRigidbody.velocity = Vector3.zero;
         releaseTime = Time.time;
+
+        scoreManager.ResetSequence();
     }
 
     void ThrowBall(Vector3 velocity)
@@ -245,6 +257,25 @@ public class BallMovement : MonoBehaviour
         ballRigidbody.angularVelocity = Random.insideUnitSphere * 2.0f;
 
         releaseTime = Time.time;
+        StartCoroutine(CheckOutcome());
+    }
+
+
+    IEnumerator CheckOutcome()
+    {
+        float elapsed = 0f;
+
+        while (elapsed < waitTime)
+        {
+            if (successTriggered)
+            {
+                yield break;
+            }
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        scoreManager.HandleMiss();
     }
 
 
