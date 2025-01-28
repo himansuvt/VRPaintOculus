@@ -1,5 +1,6 @@
 using Oculus.Interaction;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class BallMovement : MonoBehaviour
 {
@@ -7,12 +8,23 @@ public class BallMovement : MonoBehaviour
     public Transform leftHandTransform;
     public Transform rightHandTransform;
     public Rigidbody ballRigidbody;
+    public Transform basketPosition;
+    public Toggle biasToggle;
+    public RayInteractor interactor;
 
     [Header("Settings")]
     public float throwForceMultiplier = 2.5f;
     public float twoHandAttachDistance = 1f;
     public float twoHandGrabWindow = 0.3f;
     public float releaseGracePeriod = 0.5f;
+
+
+    [Header("Bias Settings")]
+    public bool isBiased = true;
+    public float biasTolerance = 0.5f;
+    public float correctionStrength = 0.2f;
+    public float activationDistance = 5f;
+    public float angleTolerance = 45f;
 
     private float leftTriggerTime = 0f;
     private float rightTriggerTime = 0f;
@@ -27,7 +39,19 @@ public class BallMovement : MonoBehaviour
     private Vector3 twoHandVelocity;
 
     private bool isTwoHanded = false;
-    public RayInteractor interactor;
+    private void Start()
+    {
+        if (biasToggle != null)
+        {
+            biasToggle.isOn = isBiased;
+            biasToggle.onValueChanged.AddListener(ToggleBiasMode);
+        }
+    }
+    void ToggleBiasMode(bool isOn)
+    {
+        isBiased = isOn;
+        Debug.Log("Bias mode updated: " + (isBiased ? "Enabled" : "Disabled"));
+    }
     void Update()
     {
         if (interactor.CollisionInfo == null)
@@ -120,6 +144,24 @@ public class BallMovement : MonoBehaviour
                 }
             }
         }
+        if (!isHeld && isBiased)
+        {
+            Vector3 toBasket = basketPosition.position - transform.position;
+            float distanceToBasket = toBasket.magnitude;
+            float throwAngle = Vector3.Angle(ballRigidbody.velocity, toBasket);
+
+            if (distanceToBasket < activationDistance && throwAngle <= angleTolerance)
+            {
+                ballRigidbody.velocity = AdjustVelocityForBias(
+                    ballRigidbody.velocity,
+                    transform.position,
+                    basketPosition.position,
+                    Time.deltaTime * correctionStrength
+                );
+            }
+        }
+
+
     }
 
     void AttachToHand(Transform hand)
@@ -192,11 +234,20 @@ public class BallMovement : MonoBehaviour
         transform.SetParent(null);
         ballRigidbody.isKinematic = false;
 
-        ballRigidbody.velocity = velocity * throwForceMultiplier;
+        Vector3 predictedPoint = PredictLandingPoint(transform.position, velocity);
+
+        if (isBiased && IsInBiasRegion(predictedPoint, basketPosition.position, biasTolerance))
+        {
+            velocity = AdjustVelocityForBias(velocity, transform.position, basketPosition.position, correctionStrength);
+        }
+
+        ballRigidbody.velocity = velocity;
         ballRigidbody.angularVelocity = Random.insideUnitSphere * 2.0f;
 
         releaseTime = Time.time;
     }
+
+
 
     void TrackHandVelocity(Transform hand)
     {
@@ -204,12 +255,52 @@ public class BallMovement : MonoBehaviour
         previousHandPosition = hand.position;
     }
 
+    Vector3 PredictLandingPoint(Vector3 startPosition, Vector3 initialVelocity)
+    {
+        Vector3 currentVelocity = initialVelocity;
+        Vector3 position = startPosition;
+
+        float timeStep = 0.02f;
+        float g = Mathf.Abs(Physics.gravity.y);
+        float maxSimulationTime = 5.0f;
+
+        for (float t = 0; t < maxSimulationTime; t += timeStep)
+        {
+            currentVelocity.y -= g * timeStep;
+            position += currentVelocity * timeStep;
+
+            if (position.y <= 0.5f)
+                break;
+        }
+
+        return position;
+    }
+    bool IsInBiasRegion(Vector3 predictedPoint, Vector3 basketPosition, float tolerance)
+    {
+        Vector3 adjustedPredictedPoint = new Vector3(predictedPoint.x, basketPosition.y, predictedPoint.z);
+
+        return Vector3.Distance(adjustedPredictedPoint, basketPosition) <= tolerance;
+    }
+
+    Vector3 AdjustVelocityForBias(Vector3 velocity, Vector3 ballPosition, Vector3 basketPosition, float correctionStrength)
+    {
+        Vector3 midpoint = Vector3.Lerp(ballPosition, basketPosition, 0.8f) + Vector3.up * 2f;
+
+        Vector3 toMidpoint = midpoint - ballPosition;
+        Vector3 toBasket = basketPosition - ballPosition;
+
+        Vector3 desiredVelocity = toMidpoint.normalized * velocity.magnitude;
+        return Vector3.Lerp(velocity, desiredVelocity, correctionStrength);
+    }
+
+
     void OnDrawGizmos()
     {
-        if (isHeld)
-        {
-            Gizmos.color = Color.red;
-            Gizmos.DrawLine(transform.position, transform.position + (isTwoHanded ? twoHandVelocity : handVelocity));
-        }
+        Vector3 midpoint = Vector3.Lerp(transform.position, basketPosition.position, 0.5f) + Vector3.up * 2f;
+        Gizmos.color = Color.cyan;
+        Gizmos.DrawLine(transform.position, midpoint);
+        Gizmos.DrawLine(midpoint, basketPosition.position);
     }
+
+
 }
