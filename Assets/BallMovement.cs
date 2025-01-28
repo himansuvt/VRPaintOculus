@@ -1,5 +1,5 @@
+using Oculus.Interaction;
 using UnityEngine;
-using UnityEngine.EventSystems;
 
 public class BallMovement : MonoBehaviour
 {
@@ -12,9 +12,11 @@ public class BallMovement : MonoBehaviour
     public float throwForceMultiplier = 2.5f;
     public float twoHandAttachDistance = 1f;
     public float twoHandGrabWindow = 0.3f;
+    public float releaseGracePeriod = 0.5f;
 
     private float leftTriggerTime = 0f;
     private float rightTriggerTime = 0f;
+    private float releaseTime = -1f;
 
     private bool isHeld = false;
     private Transform activeHand;
@@ -25,13 +27,11 @@ public class BallMovement : MonoBehaviour
     private Vector3 twoHandVelocity;
 
     private bool isTwoHanded = false;
-
+    public RayInteractor interactor;
     void Update()
     {
-        if (!EventSystem.current.IsPointerOverGameObject())
-        {
+        if (interactor.CollisionInfo == null)
             HandleInput();
-        }
 
     }
 
@@ -46,7 +46,7 @@ public class BallMovement : MonoBehaviour
         if (isRightTriggerPressed)
             rightTriggerTime = Time.time;
 
-        if (!isHeld)
+        if (!isHeld && Time.time - releaseTime > releaseGracePeriod)
         {
             if (isLeftTriggerPressed && !isRightTriggerPressed)
                 AttachToHand(leftHandTransform);
@@ -66,17 +66,24 @@ public class BallMovement : MonoBehaviour
         {
             if (isTwoHanded)
             {
-                if (!isLeftTriggerPressed && !isRightTriggerPressed)
+                float handDistance = Vector3.Distance(leftHandTransform.position, rightHandTransform.position);
+
+                if (handDistance > twoHandAttachDistance)
                 {
-                    ThrowBall(twoHandVelocity);
+                    ReleaseBall();
+                    return;
                 }
-                else if (!isLeftTriggerPressed)
+                if (!isLeftTriggerPressed || !isRightTriggerPressed)
                 {
-                    AttachToHand(rightHandTransform); // Switch to right hand
-                }
-                else if (!isRightTriggerPressed)
-                {
-                    AttachToHand(leftHandTransform); // Switch to left hand
+                    float releaseTimeDifference = Mathf.Abs(leftTriggerTime - rightTriggerTime);
+                    if (releaseTimeDifference <= twoHandGrabWindow)
+                    {
+                        ThrowBall(twoHandVelocity);
+                    }
+                    else
+                    {
+                        ReleaseBall();
+                    }
                 }
                 else
                 {
@@ -91,7 +98,7 @@ public class BallMovement : MonoBehaviour
                     float handDistance = Vector3.Distance(leftHandTransform.position, rightHandTransform.position);
                     if (handDistance <= twoHandAttachDistance)
                     {
-                        AttachToTwoHands(); // Switch to two-handed mode
+                        AttachToTwoHands();
                     }
                 }
                 else if (activeHand == rightHandTransform && isLeftTriggerPressed)
@@ -99,7 +106,7 @@ public class BallMovement : MonoBehaviour
                     float handDistance = Vector3.Distance(leftHandTransform.position, rightHandTransform.position);
                     if (handDistance <= twoHandAttachDistance)
                     {
-                        AttachToTwoHands(); // Switch to two-handed mode
+                        AttachToTwoHands();
                     }
                 }
 
@@ -114,7 +121,6 @@ public class BallMovement : MonoBehaviour
             }
         }
     }
-
 
     void AttachToHand(Transform hand)
     {
@@ -164,8 +170,6 @@ public class BallMovement : MonoBehaviour
         Vector3 currentMidpoint = (leftHandTransform.position + rightHandTransform.position) / 2f;
         twoHandVelocity = (currentMidpoint - twoHandPreviousMidpoint) / Time.deltaTime;
         twoHandPreviousMidpoint = currentMidpoint;
-
-        Debug.Log($"Tracking two-hand velocity: {twoHandVelocity}");
     }
 
     void ReleaseBall()
@@ -177,6 +181,7 @@ public class BallMovement : MonoBehaviour
         ballRigidbody.isKinematic = false;
 
         ballRigidbody.velocity = Vector3.zero;
+        releaseTime = Time.time;
     }
 
     void ThrowBall(Vector3 velocity)
@@ -190,7 +195,7 @@ public class BallMovement : MonoBehaviour
         ballRigidbody.velocity = velocity * throwForceMultiplier;
         ballRigidbody.angularVelocity = Random.insideUnitSphere * 2.0f;
 
-        Debug.Log($"Throw velocity: {velocity}, Final applied force: {velocity * throwForceMultiplier}");
+        releaseTime = Time.time;
     }
 
     void TrackHandVelocity(Transform hand)
