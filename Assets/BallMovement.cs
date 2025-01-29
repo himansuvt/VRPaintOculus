@@ -17,11 +17,9 @@ public class BallMovement : MonoBehaviour
     [Header("Settings")]
     public float throwForceMultiplier = 2.5f;
     public float twoHandAttachDistance = 1f;
-    public float twoHandGrabWindow = 0.3f;
-    public float releaseGracePeriod = 0.5f;
-    public bool successTriggered = false;
+    public float releaseForceThreshold = 10f;
     public float waitTime = 2.5f;
-
+    
 
     [Header("Bias Settings")]
     public bool isBiased = true;
@@ -29,11 +27,7 @@ public class BallMovement : MonoBehaviour
     public float correctionStrength = 0.2f;
     public float activationDistance = 5f;
     public float angleTolerance = 45f;
-
-    private float leftTriggerTime = 0f;
-    private float rightTriggerTime = 0f;
-    private float releaseTime = -1f;
-
+    [HideInInspector]public bool successTriggered = false;
     private bool isHeld = false;
     private Transform activeHand;
     private Vector3 previousHandPosition;
@@ -43,6 +37,7 @@ public class BallMovement : MonoBehaviour
     private Vector3 twoHandVelocity;
 
     private bool isTwoHanded = false;
+
     private void Start()
     {
         if (biasToggle != null)
@@ -51,126 +46,66 @@ public class BallMovement : MonoBehaviour
             biasToggle.onValueChanged.AddListener(ToggleBiasMode);
         }
     }
+
     void ToggleBiasMode(bool isOn)
     {
         isBiased = isOn;
         Debug.Log("Bias mode updated: " + (isBiased ? "Enabled" : "Disabled"));
     }
+
     void Update()
     {
         if (interactor.CollisionInfo == null)
             HandleInput();
-
     }
 
     void HandleInput()
     {
         bool isLeftTriggerPressed = OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger);
         bool isRightTriggerPressed = OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger);
+        float handDistance = Vector3.Distance(leftHandTransform.position, rightHandTransform.position);
 
-        if (isLeftTriggerPressed)
-            leftTriggerTime = Time.time;
-
-        if (isRightTriggerPressed)
-            rightTriggerTime = Time.time;
-
-        if (!isHeld && Time.time - releaseTime > releaseGracePeriod)
-        {
-            if (isLeftTriggerPressed && !isRightTriggerPressed)
+        if (isLeftTriggerPressed && !isRightTriggerPressed)
                 AttachToHand(leftHandTransform);
-
             else if (isRightTriggerPressed && !isLeftTriggerPressed)
                 AttachToHand(rightHandTransform);
-
-            else if (isLeftTriggerPressed && isRightTriggerPressed &&
-                     Mathf.Abs(leftTriggerTime - rightTriggerTime) <= twoHandGrabWindow &&
-                     Vector3.Distance(leftHandTransform.position, rightHandTransform.position) <= twoHandAttachDistance)
-            {
+            else if (isLeftTriggerPressed && isRightTriggerPressed)
                 AttachToTwoHands();
-            }
-        }
+        
 
         if (isHeld)
         {
             if (isTwoHanded)
             {
-                float handDistance = Vector3.Distance(leftHandTransform.position, rightHandTransform.position);
+                UpdateTwoHandAttachment();
+                TrackTwoHandVelocity();
+               
 
                 if (handDistance > twoHandAttachDistance)
                 {
                     ReleaseBall();
                     return;
                 }
-                if (!isLeftTriggerPressed || !isRightTriggerPressed)
+                if (twoHandVelocity.magnitude > releaseForceThreshold)
                 {
-                    float releaseTimeDifference = Mathf.Abs(leftTriggerTime - rightTriggerTime);
-                    if (releaseTimeDifference <= twoHandGrabWindow)
-                    {
-                        ThrowBall(twoHandVelocity);
-                    }
-                    else
-                    {
-                        ReleaseBall();
-                    }
-                }
-                else
-                {
-                    UpdateTwoHandAttachment();
-                    TrackTwoHandVelocity();
+                    ThrowBall(twoHandVelocity * throwForceMultiplier);
                 }
             }
             else
             {
-                if (activeHand == leftHandTransform && isRightTriggerPressed)
-                {
-                    float handDistance = Vector3.Distance(leftHandTransform.position, rightHandTransform.position);
-                    if (handDistance <= twoHandAttachDistance)
-                    {
-                        AttachToTwoHands();
-                    }
-                }
-                else if (activeHand == rightHandTransform && isLeftTriggerPressed)
-                {
-                    float handDistance = Vector3.Distance(leftHandTransform.position, rightHandTransform.position);
-                    if (handDistance <= twoHandAttachDistance)
-                    {
-                        AttachToTwoHands();
-                    }
-                }
+                TrackHandVelocity(activeHand);
 
-                if (activeHand == leftHandTransform && !isLeftTriggerPressed)
-                    ThrowBall(handVelocity);
-                else if (activeHand == rightHandTransform && !isRightTriggerPressed)
-                    ThrowBall(handVelocity);
-                else
+                if (handVelocity.magnitude > releaseForceThreshold)
                 {
-                    TrackHandVelocity(activeHand);
+                    ThrowBall(handVelocity * throwForceMultiplier);
                 }
             }
         }
-        if (!isHeld && isBiased)
-        {
-            Vector3 toBasket = basketPosition.position - transform.position;
-            float distanceToBasket = toBasket.magnitude;
-            float throwAngle = Vector3.Angle(ballRigidbody.velocity, toBasket);
-
-            if (distanceToBasket < activationDistance && throwAngle <= angleTolerance)
-            {
-                ballRigidbody.velocity = AdjustVelocityForBias(
-                    ballRigidbody.velocity,
-                    transform.position,
-                    basketPosition.position,
-                    Time.deltaTime * correctionStrength
-                );
-            }
-        }
-
-
     }
 
-    private void OnTriggerEnter(Collider other)
+    public void OnTriggerEnter(Collider other)
     {
-        scoreManager.CheckGoal( other );
+        scoreManager.CheckGoal(other);
     }
     void AttachToHand(Transform hand)
     {
@@ -223,7 +158,6 @@ public class BallMovement : MonoBehaviour
         twoHandVelocity = (currentMidpoint - twoHandPreviousMidpoint) / Time.deltaTime;
         twoHandPreviousMidpoint = currentMidpoint;
     }
-
     void ReleaseBall()
     {
         isHeld = false;
@@ -233,11 +167,10 @@ public class BallMovement : MonoBehaviour
         ballRigidbody.isKinematic = false;
 
         ballRigidbody.velocity = Vector3.zero;
-        releaseTime = Time.time;
+
 
         scoreManager.ResetSequence();
     }
-
     void ThrowBall(Vector3 velocity)
     {
         isHeld = false;
@@ -256,10 +189,8 @@ public class BallMovement : MonoBehaviour
         ballRigidbody.velocity = velocity;
         ballRigidbody.angularVelocity = Random.insideUnitSphere * 2.0f;
 
-        releaseTime = Time.time;
         StartCoroutine(CheckOutcome());
     }
-
 
     IEnumerator CheckOutcome()
     {
@@ -277,8 +208,6 @@ public class BallMovement : MonoBehaviour
 
         scoreManager.HandleMiss();
     }
-
-
 
     void TrackHandVelocity(Transform hand)
     {
@@ -306,6 +235,7 @@ public class BallMovement : MonoBehaviour
 
         return position;
     }
+
     bool IsInBiasRegion(Vector3 predictedPoint, Vector3 basketPosition, float tolerance)
     {
         Vector3 adjustedPredictedPoint = new Vector3(predictedPoint.x, basketPosition.y, predictedPoint.z);
@@ -324,7 +254,6 @@ public class BallMovement : MonoBehaviour
         return Vector3.Lerp(velocity, desiredVelocity, correctionStrength);
     }
 
-
     void OnDrawGizmos()
     {
         Vector3 midpoint = Vector3.Lerp(transform.position, basketPosition.position, 0.5f) + Vector3.up * 2f;
@@ -332,6 +261,4 @@ public class BallMovement : MonoBehaviour
         Gizmos.DrawLine(transform.position, midpoint);
         Gizmos.DrawLine(midpoint, basketPosition.position);
     }
-
-
 }
